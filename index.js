@@ -1,19 +1,21 @@
 const { SerialPort } = require('serialport');
+const crc = require('crc'); // Make sure to install this package using npm install crc
 
-// Define GPIO pin variables
-const RS485_B_PIN = '1';  // GPIO pin connected to RS485 B line
-const GND_PIN = '2';      // GPIO pin connected to GND
-const RS485_A_PIN = '3';  // GPIO pin connected to RS485 A line
+// Function to calculate CRC with starting word FFFFH
+function calculateCRC(buffer) {
+    const crcValue = crc.crc16modbus(buffer);
+    return [(crcValue & 0xFF), (crcValue >> 8) & 0xFF]; // Return CRC as [LSB, MSB]
+}
 
 // Function to open the serial port
 async function openSerialPort() {
     return new Promise((resolve, reject) => {
         const port = new SerialPort({
-            path: 'COM12',  // Adjust the COM port as necessary
+            path: 'COM3', // Adjust the COM port as necessary
             baudRate: 19200,
             dataBits: 8,
             stopBits: 1,
-            parity: 'none',
+            parity: 'none'
         });
 
         port.on('open', () => {
@@ -27,62 +29,48 @@ async function openSerialPort() {
     });
 }
 
-// Function to set a GPIO pin high
-function setPinHigh(port, pin) {
-    port.write(`gpio set 00${pin}\n`, (err) => {
+// Function to send Modbus RTU command with CRC
+function sendModbusCommand(port, command) {
+    // Convert command string to buffer
+    const buffer = Buffer.from(command.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+
+    // Calculate CRC and append to command
+    const crcValues = calculateCRC(buffer);
+    const finalCommand = Buffer.concat([buffer, Buffer.from(crcValues)]);
+
+    console.log('Final command with CRC:', finalCommand.toString('hex'));
+
+    // Write the command to the serial port
+    port.write(finalCommand, (err) => {
         if (err) {
-            console.log('Error writing to port: ' + err.message);
+            console.error('Error writing to port: ', err.message);
+        } else {
+            console.log('Command sent:', finalCommand.toString('hex'));
         }
+    });
+
+    // Listen for data from the motor controller
+    port.on('data', (data) => {
+        console.log('Received response:', data.toString('hex'));
+    });
+
+    port.on('error', (err) => {
+        console.error('Serial port error:', err.message);
     });
 }
 
-// Function to set a GPIO pin low
-function setPinLow(port, pin) {
-    port.write(`gpio clear 00${pin}\n`, (err) => {
-        if (err) {
-            console.log('Error writing to port: ' + err.message);
-        }
-    });
-}
-
-// Function to send RS485 command
-function sendRS485Command(port, command) {
-    for (let i = 0; i < command.length; i++) {
-        let bit = command.charCodeAt(i).toString(2).padStart(8, '0');
-        for (let j = 0; j < bit.length; j++) {
-            if (bit[j] === '1') {
-                setPinHigh(port, RS485_A_PIN); // RS485 A line
-                setPinLow(port, RS485_B_PIN);  // RS485 B line
-            } else {
-                setPinLow(port, RS485_A_PIN);  // RS485 A line
-                setPinHigh(port, RS485_B_PIN); // RS485 B line
-            }
-            // Wait for a bit period
-            // Adjust the delay based on your baud rate
-            sleep(1); // 1 ms sleep for example
-        }
-    }
-}
-
-// Function to sleep for a given number of milliseconds
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// Main function to handle the port opening and RS485 communication
+// Main function to handle the port opening and communication
 async function main() {
     try {
         const port = await openSerialPort();
 
-        // Send an RS485 command example
-        // Replace 'YOUR_RS485_COMMAND' with the actual command for your motor controller
-        const rs485Command = 'YOUR_RS485_COMMAND';
-        sendRS485Command(port, rs485Command);
+        // Example Modbus RTU command (function code 06 to write a single register)
+        const modbusCommand = '010680000B0226FB'; // Example command without CRC
+
+        sendModbusCommand(port, modbusCommand);
 
         // Clean up on exit
         process.on('SIGINT', () => {
-            setPinLow(port, RS485_B_PIN);
-            setPinLow(port, RS485_A_PIN);
             port.close(() => {
                 console.log('Port closed');
                 process.exit();
