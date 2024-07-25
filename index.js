@@ -11,8 +11,8 @@ function calculateCRC(buffer) {
 async function openSerialPort() {
     return new Promise((resolve, reject) => {
         const port = new SerialPort({
-            path: 'COM3', // Adjust the COM port as necessary
-            baudRate: 19200,
+            path: 'COM4', // Adjust the COM port as necessary
+            baudRate: 9600,
             dataBits: 8,
             stopBits: 1,
             parity: 'none'
@@ -65,7 +65,12 @@ async function main() {
         const port = await openSerialPort();
 
         // Example Modbus RTU command (function code 06 to write a single register)
-        const modbusCommand = '010680000B0226FB'; // Example command without CRC
+        // const modbusCommand = '010680000B00'; // Move Forward
+        // const modbusCommand = '010680000900'; // Move backward
+        const modbusCommand = '010380060001'; // Example command without CRC
+        // const modbusCommand = '010680000902';
+        // const modbusCommand = "010680000802"; // Natural stop
+        // const modbusCommand = "010680000D02"; // Braking stop
 
         sendModbusCommand(port, modbusCommand);
 
